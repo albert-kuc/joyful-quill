@@ -1,50 +1,78 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+
+// POC: hardcoded path — replace with a folder that has images on your machine
+const HARDCODED_PATH = "D:\\MEGA drw\\era_of_meat";
+
+interface DirEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+}
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  const [entries, setEntries] = useState<DirEntry[]>([]);
+  const [viewerSrc, setViewerSrc] = useState<string | null>(null);
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+  useEffect(() => {
+    invoke<DirEntry[]>("list_directory", { path: HARDCODED_PATH }).then(setEntries);
+  }, []);
+
+  async function openImage(path: string) {
+    try {
+      const src = await invoke<string>("read_image_base64", { path });
+      setViewerSrc(src);
+    } catch (err) {
+      console.error("Failed to load image:", err);
+    }
   }
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+    <div style={{ padding: "1rem", fontFamily: "sans-serif" }}>
+      <h2 style={{ marginBottom: "1rem" }}>{HARDCODED_PATH}</h2>
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
+      {entries.length === 0 && <p>No images or folders found.</p>}
 
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        {entries.map((entry) => (
+          <li key={entry.path} style={{ marginBottom: "0.25rem" }}>
+            {entry.is_dir ? (
+              <span>📁 {entry.name}</span>
+            ) : (
+              <button
+                onClick={() => openImage(entry.path)}
+                style={{ cursor: "pointer", background: "none", border: "none", padding: 0, color: "inherit", fontSize: "inherit" }}
+              >
+                🖼 {entry.name}
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      {viewerSrc && (
+        <div
+          onClick={() => setViewerSrc(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "black",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 100,
+            cursor: "pointer",
+          }}
+        >
+          <img
+            src={viewerSrc}
+            style={{ maxWidth: "100vw", maxHeight: "100vh", objectFit: "contain" }}
+            alt=""
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+    </div>
   );
 }
 
