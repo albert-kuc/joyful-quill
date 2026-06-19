@@ -8,3 +8,53 @@
   flex-direction: column;
   gap: 4px;
 }
+
+.tile {
+  background: #222;
+  cursor: pointer;
+}
+
+.tile--folder {
+  border: 2px solid #3b82f6;
+}
+
+.folder-tile {
+  position: relative;
+  aspect-ratio: 1;
+  overflow: hidden;
+}
+
+.folder-tile__preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.45;
+}
+
+.folder-tile__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.5rem;
+}
+
+.folder-tile__icon {
+  font-size: 3rem;
+}
+
+.folder-tile__name {
+  color: #fff;
+  font-size: 0.75rem;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}

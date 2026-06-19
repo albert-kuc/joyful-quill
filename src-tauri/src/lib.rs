@@ -11,6 +11,28 @@ struct DirEntry {
     name: String,
     path: String,
     is_dir: bool,
+    preview_path: Option<String>,
+}
+
+fn find_first_image(dir: &str) -> Option<String> {
+    let Ok(read_dir) = fs::read_dir(dir) else {
+        return None;
+    };
+    read_dir
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let p = e.path();
+            if !p.is_file() {
+                return None;
+            }
+            let ext = p.extension()?.to_str()?.to_lowercase();
+            if SUPPORTED_EXTENSIONS.contains(&ext.as_str()) {
+                Some(p.to_string_lossy().into_owned())
+            } else {
+                None
+            }
+        })
+        .next()
 }
 
 #[tauri::command]
@@ -26,10 +48,12 @@ fn list_directory(path: String) -> Vec<DirEntry> {
             let name = e.file_name().to_string_lossy().into_owned();
 
             if p.is_dir() {
+                let preview_path = find_first_image(&p.to_string_lossy());
                 return Some(DirEntry {
                     name,
                     path: p.to_string_lossy().into_owned(),
                     is_dir: true,
+                    preview_path,
                 });
             }
 
@@ -44,6 +68,7 @@ fn list_directory(path: String) -> Vec<DirEntry> {
                     name,
                     path: p.to_string_lossy().into_owned(),
                     is_dir: false,
+                    preview_path: None,
                 })
             } else {
                 None
@@ -51,13 +76,23 @@ fn list_directory(path: String) -> Vec<DirEntry> {
         })
         .collect();
 
-    entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    entries.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
     entries
 }
 
 #[tauri::command]
 fn get_thumbnail(path: String, size: u32) -> Result<String, String> {
-    let img = image::open(&path).map_err(|e| e.to_string())?;
+    let file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+    let reader = std::io::BufReader::new(file);
+    let img = image::ImageReader::new(reader)
+        .with_guessed_format()
+        .map_err(|e| e.to_string())?
+        .decode()
+        .map_err(|e| e.to_string())?;
     let thumb = img.thumbnail(size, size);
     let mut buf = Vec::new();
     thumb
@@ -70,18 +105,10 @@ fn get_thumbnail(path: String, size: u32) -> Result<String, String> {
 #[tauri::command]
 fn read_image_base64(path: String) -> Result<String, String> {
     let bytes = fs::read(&path).map_err(|e| e.to_string())?;
-    let ext = std::path::Path::new(&path)
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("jpg")
-        .to_lowercase();
-    let mime = match ext.as_str() {
-        "png" => "image/png",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "bmp" => "image/bmp",
-        _ => "image/jpeg",
-    };
+    // Detect actual format from magic bytes, ignoring the file extension.
+    let mime = image::guess_format(&bytes)
+        .map(|f| f.to_mime_type())
+        .unwrap_or("image/jpeg");
     let encoded = general_purpose::STANDARD.encode(&bytes);
     Ok(format!("data:{};base64,{}", mime, encoded))
 }

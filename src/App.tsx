@@ -4,31 +4,58 @@ import Masonry from "react-masonry-css";
 import { useTileSize } from "./hooks/useTileSize";
 import "./App.css";
 
-const HARDCODED_PATH = "D:\\MEGA drw\\era_of_meat";
+const INITIAL_PATH = "D:\\MEGA drw\\admapss";
 const THUMB_SIZE = 600;
 
 interface DirEntry {
   name: string;
   path: string;
   is_dir: boolean;
+  preview_path: string | null;
+}
+
+function getParentPath(p: string): string | null {
+  if (/^[A-Za-z]:\\?$/.test(p)) return null;
+  const last = p.lastIndexOf("\\");
+  if (last < 0) return null;
+  if (last <= 2) return p.slice(0, 3);
+  return p.slice(0, last);
+}
+
+function buildBreadcrumb(p: string): { label: string; path: string }[] {
+  const parts = p.replace(/\\+$/, "").split("\\");
+  return parts.map((part, i) => ({
+    label: part,
+    path: i === 0 ? part + "\\" : parts.slice(0, i + 1).join("\\"),
+  }));
 }
 
 function App() {
+  const [currentPath, setCurrentPath] = useState(INITIAL_PATH);
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const cols = useTileSize();
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [viewerSrc, setViewerSrc] = useState<string | null>(null);
 
-  useEffect(() => {
-    invoke<DirEntry[]>("list_directory", { path: HARDCODED_PATH }).then(setEntries);
-  }, []);
+  function navigateTo(path: string) {
+    setCurrentPath(path);
+    setEntries([]);
+    setThumbs({});
+  }
 
   useEffect(() => {
-    const imageEntries = entries.filter(e => !e.is_dir);
+    invoke<DirEntry[]>("list_directory", { path: currentPath }).then(setEntries);
+  }, [currentPath]);
+
+  useEffect(() => {
+    const pathsToLoad = entries.flatMap(e =>
+      !e.is_dir ? [e.path] : e.preview_path ? [e.preview_path] : []
+    );
+    if (pathsToLoad.length === 0) return;
     Promise.all(
-      imageEntries.map(e =>
-        invoke<string>("get_thumbnail", { path: e.path, size: THUMB_SIZE })
-          .then(src => ({ path: e.path, src }))
+      pathsToLoad.map(p =>
+        invoke<string>("get_thumbnail", { path: p, size: THUMB_SIZE })
+          .then(src => ({ path: p, src }))
           .catch(() => null)
       )
     ).then(results => {
@@ -37,6 +64,20 @@ function App() {
       setThumbs(map);
     });
   }, [entries]);
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key !== "Backspace") return;
+      if (viewerSrc) {
+        setViewerSrc(null);
+        return;
+      }
+      const parent = getParentPath(currentPath);
+      if (parent) navigateTo(parent);
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [viewerSrc, currentPath]);
 
   async function openImage(path: string) {
     try {
@@ -47,9 +88,30 @@ function App() {
     }
   }
 
+  const breadcrumb = buildBreadcrumb(currentPath);
+
   return (
     <div style={{ padding: "1rem", fontFamily: "sans-serif" }}>
-      <h2 style={{ marginBottom: "1rem" }}>{HARDCODED_PATH}</h2>
+      <div style={{ marginBottom: "1rem", display: "flex", gap: "0.25rem", alignItems: "center", flexWrap: "wrap" }}>
+        {breadcrumb.map((seg, i) => (
+          <span key={seg.path} style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
+            {i > 0 && <span style={{ color: "#555" }}>›</span>}
+            <button
+              onClick={() => navigateTo(seg.path)}
+              style={{
+                background: "none",
+                border: "none",
+                color: i === breadcrumb.length - 1 ? "#fff" : "#888",
+                cursor: "pointer",
+                padding: "2px 4px",
+                fontSize: "0.9rem",
+              }}
+            >
+              {seg.label}
+            </button>
+          </span>
+        ))}
+      </div>
 
       <Masonry
         breakpointCols={cols}
@@ -59,15 +121,22 @@ function App() {
         {entries.map(entry => (
           <div
             key={entry.path}
-            onClick={() => !entry.is_dir && openImage(entry.path)}
-            style={{
-              cursor: entry.is_dir ? "default" : "pointer",
-              background: "#222",
-            }}
+            onClick={() => entry.is_dir ? navigateTo(entry.path) : openImage(entry.path)}
+            className={entry.is_dir ? "tile tile--folder" : "tile"}
           >
             {entry.is_dir ? (
-              <div style={{ aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <span style={{ fontSize: "3rem" }}>📁</span>
+              <div className="folder-tile">
+                {entry.preview_path && thumbs[entry.preview_path] && (
+                  <img
+                    src={thumbs[entry.preview_path]}
+                    alt=""
+                    className="folder-tile__preview"
+                  />
+                )}
+                <div className="folder-tile__overlay">
+                  <span className="folder-tile__icon">📁</span>
+                  <span className="folder-tile__name">{entry.name}</span>
+                </div>
               </div>
             ) : thumbs[entry.path] ? (
               <img
