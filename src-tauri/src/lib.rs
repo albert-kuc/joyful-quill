@@ -56,6 +56,18 @@ fn list_directory(path: String) -> Vec<DirEntry> {
 }
 
 #[tauri::command]
+fn get_thumbnail(path: String, size: u32) -> Result<String, String> {
+    let img = image::open(&path).map_err(|e| e.to_string())?;
+    let thumb = img.thumbnail(size, size);
+    let mut buf = Vec::new();
+    thumb
+        .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Jpeg)
+        .map_err(|e| e.to_string())?;
+    let encoded = general_purpose::STANDARD.encode(&buf);
+    Ok(format!("data:image/jpeg;base64,{}", encoded))
+}
+
+#[tauri::command]
 fn read_image_base64(path: String) -> Result<String, String> {
     let bytes = fs::read(&path).map_err(|e| e.to_string())?;
     let ext = std::path::Path::new(&path)
@@ -78,7 +90,7 @@ fn read_image_base64(path: String) -> Result<String, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![list_directory, read_image_base64])
+        .invoke_handler(tauri::generate_handler![list_directory, read_image_base64, get_thumbnail])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
