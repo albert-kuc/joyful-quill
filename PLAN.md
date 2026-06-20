@@ -49,6 +49,7 @@ cannot touch files directly; it asks Rust via Tauri commands.
 | Layer | Library | Purpose |
 |-------|---------|---------|
 | Backend | `image` crate (Rust) | Decode images, generate thumbnails |
+| Backend | `rayon` (Rust) | Parallel thumbnail generation across all CPU cores |
 | Backend | `walkdir` / `std::fs` | Directory enumeration |
 | Frontend | React 18 + TypeScript | UI |
 | Frontend | Zustand | App state (current path, tile size, open image) |
@@ -84,13 +85,13 @@ joyful-quill/
 
 ## Build Strategy — Five Milestones
 
-| # | Milestone | Deliverable |
-|---|-----------|-------------|
-| 1 | **POC** | Window opens; Rust reads a hardcoded folder; React lists filenames; click opens image fullscreen. Proves the full Tauri → Rust → React pipeline works. |
-| 2 | **Tile grid** | Real thumbnails in a CSS grid; scroll wheel resizes tiles |
-| 3 | **Navigation** | Folder tiles with preview + icon; click in; Backspace out; breadcrumb |
-| 4 | **Full-screen viewer** | `←` / `→` navigation; `Escape` / `Backspace` to close |
-| 5 | **Polish & integration** | Open folder dialog; Windows "Open with"; thumbnail disk cache; virtualisation for large folders |
+| # | Status | Milestone | Deliverable |
+|---|--------|-----------|-------------|
+| 1 | ✅ done | **POC** | Window opens; Rust reads a hardcoded folder; React lists filenames; click opens image fullscreen. Proves the full Tauri → Rust → React pipeline works. |
+| 2 | ✅ done | **Tile grid** | Real thumbnails in a CSS grid; scroll wheel resizes tiles |
+| 3 | ✅ done | **Navigation** | Folder tiles with preview + icon; click in; Backspace out; breadcrumb |
+| 4 | ✅ done | **Full-screen viewer** | `←` / `→` navigation; `Escape` / `Backspace` to close |
+| 5 | 🔲 next | **Polish & integration** | Progressive loading; parallel generation (rayon); disk cache (`%LOCALAPPDATA%\JoyfulQuill\thumbs\`); open folder dialog; Windows "Open with"; virtualisation for large folders |
 
 ---
 
@@ -111,9 +112,26 @@ Sort: natural sort by name (same algorithm as Windows Explorer so `img2 < img10`
 
 `get_thumbnail(path: String, size: u32) -> String` (returns base64-encoded JPEG)
 
+- Detect image format from magic bytes, not file extension (handles misnamed files)
 - Resize with `image::imageops::thumbnail`
-- Cache to `%LOCALAPPDATA%\JoyfulQuill\thumbs\<sha1-of-path>.jpg`
-- Return cached bytes if the file mtime hasn't changed
+
+**Disk cache** — avoids re-decoding on every folder visit:
+- Location: `%LOCALAPPDATA%\JoyfulQuill\thumbs\`
+- Cache key: `<hex(sha256(absolute_path + "|" + mtime_unix_secs))>.jpg`
+- On hit: read the cached JPEG bytes directly — no image decode
+- On miss: decode → resize → write to cache → return
+- Invalidation: mtime change produces a new cache key; orphaned files cleaned on startup
+
+**Parallel generation** with `rayon`:
+- Replace the single-threaded per-call approach with a batch command:
+  `get_thumbnails_batch(paths: Vec<String>, size: u32) -> Vec<(String, Option<String>)>`
+- Internally uses `rayon::par_iter()` — all CPU cores work simultaneously
+- Single IPC round-trip instead of one per image
+
+**Progressive loading** on the React side:
+- Fire thumbnail requests individually so each tile appears as soon as its thumbnail is ready
+- Update state per-result: `setThumbs(prev => ({ ...prev, [path]: src }))`
+- Tiles show a grey placeholder while loading, then appear when the thumbnail arrives
 
 ### 3. Tile grid
 
@@ -167,8 +185,9 @@ Sort: natural sort by name (same algorithm as Windows Explorer so `img2 < img10`
 | `should_filter_to_supported_extensions` | Only image extensions included |
 | `should_return_first_image_as_folder_preview` | First image returned as preview path |
 | `should_return_null_preview_for_empty_folder` | Empty folder returns `null` |
-| `should_use_cached_thumbnail_when_mtime_unchanged` | Cache hit: no re-generation |
-| `should_regenerate_thumbnail_when_mtime_changed` | Cache miss: new thumbnail written |
+| `should_use_cached_thumbnail_when_mtime_unchanged` | Cache hit: reads cached JPEG, no decode |
+| `should_regenerate_thumbnail_when_mtime_changed` | mtime change → new cache key → re-decode |
+| `should_detect_format_from_magic_bytes` | JPEG file with `.png` extension decoded correctly |
 
 ### React tests — Vitest + React Testing Library (`npm run test`)
 

@@ -1,46 +1,41 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import Masonry from "react-masonry-css";
 import { useTileSize } from "./hooks/useTileSize";
+import {
+  buildBreadcrumb,
+  getParentPath,
+  toImageEntries,
+  nextIndex,
+  prevIndex,
+} from "./utils/navigation";
+import type { DirEntry } from "./utils/navigation";
 import "./App.css";
 
 const INITIAL_PATH = "D:\\MEGA drw\\admapss";
 const THUMB_SIZE = 600;
-
-interface DirEntry {
-  name: string;
-  path: string;
-  is_dir: boolean;
-  preview_path: string | null;
-}
-
-function getParentPath(p: string): string | null {
-  if (/^[A-Za-z]:\\?$/.test(p)) return null;
-  const last = p.lastIndexOf("\\");
-  if (last < 0) return null;
-  if (last <= 2) return p.slice(0, 3);
-  return p.slice(0, last);
-}
-
-function buildBreadcrumb(p: string): { label: string; path: string }[] {
-  const parts = p.replace(/\\+$/, "").split("\\");
-  return parts.map((part, i) => ({
-    label: part,
-    path: i === 0 ? part + "\\" : parts.slice(0, i + 1).join("\\"),
-  }));
-}
 
 function App() {
   const [currentPath, setCurrentPath] = useState(INITIAL_PATH);
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const cols = useTileSize();
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [viewerSrc, setViewerSrc] = useState<string | null>(null);
+
+  const imageEntries = useMemo(() => toImageEntries(entries), [entries]);
 
   function navigateTo(path: string) {
     setCurrentPath(path);
     setEntries([]);
     setThumbs({});
+    setViewerIndex(null);
+    setViewerSrc(null);
+  }
+
+  function closeViewer() {
+    setViewerIndex(null);
+    setViewerSrc(null);
   }
 
   useEffect(() => {
@@ -66,51 +61,71 @@ function App() {
   }, [entries]);
 
   useEffect(() => {
+    if (viewerIndex === null) {
+      setViewerSrc(null);
+      return;
+    }
+    const entry = imageEntries[viewerIndex];
+    if (!entry) return;
+    setViewerSrc(null);
+    invoke<string>("read_image_base64", { path: entry.path })
+      .then(setViewerSrc)
+      .catch(err => console.error("Failed to load image:", err));
+  }, [viewerIndex, imageEntries]);
+
+  useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key !== "Backspace") return;
-      if (viewerSrc) {
-        setViewerSrc(null);
+      if (viewerIndex !== null) {
+        if (e.key === "ArrowRight") {
+          setViewerIndex(nextIndex(viewerIndex, imageEntries.length));
+        } else if (e.key === "ArrowLeft") {
+          setViewerIndex(prevIndex(viewerIndex, imageEntries.length));
+        } else if (e.key === "Escape" || e.key === "Backspace") {
+          closeViewer();
+        }
         return;
       }
-      const parent = getParentPath(currentPath);
-      if (parent) navigateTo(parent);
+      if (e.key === "Backspace") {
+        const parent = getParentPath(currentPath);
+        if (parent) navigateTo(parent);
+      }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [viewerSrc, currentPath]);
-
-  async function openImage(path: string) {
-    try {
-      const src = await invoke<string>("read_image_base64", { path });
-      setViewerSrc(src);
-    } catch (err) {
-      console.error("Failed to load image:", err);
-    }
-  }
+  }, [viewerIndex, currentPath, imageEntries]);
 
   const breadcrumb = buildBreadcrumb(currentPath);
 
   return (
     <div style={{ padding: "1rem", fontFamily: "sans-serif" }}>
       <div style={{ marginBottom: "1rem", display: "flex", gap: "0.25rem", alignItems: "center", flexWrap: "wrap" }}>
-        {breadcrumb.map((seg, i) => (
-          <span key={seg.path} style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
-            {i > 0 && <span style={{ color: "#555" }}>›</span>}
-            <button
-              onClick={() => navigateTo(seg.path)}
-              style={{
-                background: "none",
-                border: "none",
-                color: i === breadcrumb.length - 1 ? "#fff" : "#888",
-                cursor: "pointer",
-                padding: "2px 4px",
-                fontSize: "0.9rem",
-              }}
-            >
-              {seg.label}
-            </button>
-          </span>
-        ))}
+        {breadcrumb.map((seg, i) => {
+          const isLast = i === breadcrumb.length - 1;
+          return (
+            <span key={seg.path} style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
+              {i > 0 && <span style={{ color: "#aaa" }}>›</span>}
+              {isLast ? (
+                <span style={{ color: "#1e3347", padding: "2px 4px", fontSize: "0.9rem", fontWeight: 500 }}>
+                  {seg.label}
+                </span>
+              ) : (
+                <button
+                  onClick={() => navigateTo(seg.path)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#4a6d8e",
+                    cursor: "pointer",
+                    padding: "2px 4px",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  {seg.label}
+                </button>
+              )}
+            </span>
+          );
+        })}
       </div>
 
       <Masonry
@@ -121,7 +136,11 @@ function App() {
         {entries.map(entry => (
           <div
             key={entry.path}
-            onClick={() => entry.is_dir ? navigateTo(entry.path) : openImage(entry.path)}
+            onClick={() =>
+              entry.is_dir
+                ? navigateTo(entry.path)
+                : setViewerIndex(imageEntries.indexOf(entry))
+            }
             className={entry.is_dir ? "tile tile--folder" : "tile"}
           >
             {entry.is_dir ? (
@@ -153,21 +172,25 @@ function App() {
         ))}
       </Masonry>
 
-      {viewerSrc && (
+      {viewerIndex !== null && (
         <div
-          onClick={() => setViewerSrc(null)}
+          onClick={closeViewer}
           style={{
             position: "fixed", inset: 0, background: "black",
             display: "flex", alignItems: "center", justifyContent: "center",
             zIndex: 100, cursor: "pointer",
           }}
         >
-          <img
-            src={viewerSrc}
-            style={{ maxWidth: "100vw", maxHeight: "100vh", objectFit: "contain" }}
-            alt=""
-            onClick={e => e.stopPropagation()}
-          />
+          {viewerSrc ? (
+            <img
+              src={viewerSrc}
+              style={{ maxWidth: "100vw", maxHeight: "100vh", objectFit: "contain" }}
+              alt=""
+              onClick={e => e.stopPropagation()}
+            />
+          ) : (
+            <div style={{ color: "#555", fontSize: "2rem" }}>…</div>
+          )}
         </div>
       )}
     </div>
