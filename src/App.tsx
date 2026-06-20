@@ -27,6 +27,7 @@ function App() {
   const [viewerSrc, setViewerSrc] = useState<string | null>(null);
   const [timerSeconds, setTimerSeconds] = useState<number | null>(null);
   const [thumbsLoading, setThumbsLoading] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const imageEntries = useMemo(() => toImageEntries(entries), [entries]);
@@ -43,6 +44,11 @@ function App() {
   async function pickFolder() {
     const selected = await open({ directory: true, multiple: false });
     if (typeof selected === "string") navigateTo(selected);
+  }
+
+  async function clearCache() {
+    await invoke("clear_cache");
+    setShowClearConfirm(false);
   }
 
   function closeViewer() {
@@ -189,12 +195,13 @@ function App() {
             );
           })}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           {timerSeconds !== null && (
             <span style={{
               fontFamily: "monospace",
               fontSize: "0.85rem",
               color: thumbsLoading ? "#c0692a" : "#888",
+              marginRight: "0.25rem",
             }}>
               {timerSeconds}s
             </span>
@@ -213,6 +220,55 @@ function App() {
           >
             Open…
           </button>
+          <span style={{ color: "#aaa" }}>|</span>
+          {showClearConfirm ? (
+            <>
+              <span style={{ fontSize: "0.85rem", color: "#666" }}>Purge cache?</span>
+              <button
+                onClick={clearCache}
+                style={{
+                  background: "none",
+                  border: "1px solid #c0692a",
+                  borderRadius: "4px",
+                  padding: "2px 8px",
+                  fontSize: "0.85rem",
+                  cursor: "pointer",
+                  color: "#c0692a",
+                }}
+              >
+                Yes
+              </button>
+              <button
+                onClick={() => setShowClearConfirm(false)}
+                style={{
+                  background: "none",
+                  border: "1px solid #ccc",
+                  borderRadius: "4px",
+                  padding: "2px 8px",
+                  fontSize: "0.85rem",
+                  cursor: "pointer",
+                  color: "#666",
+                }}
+              >
+                No
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setShowClearConfirm(true)}
+              style={{
+                background: "none",
+                border: "1px solid #ccc",
+                borderRadius: "4px",
+                padding: "2px 8px",
+                fontSize: "0.85rem",
+                cursor: "pointer",
+                color: "#4a6d8e",
+              }}
+            >
+              Clear cache
+            </button>
+          )}
         </div>
       </div>
 
