@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import Masonry from "react-masonry-css";
 import { useTileSize } from "./hooks/useTileSize";
 import {
@@ -12,12 +13,13 @@ import {
 import type { DirEntry } from "./utils/navigation";
 import "./App.css";
 
-const INITIAL_PATH = "D:\\MEGA drw\\admapss";
 const THUMB_SIZE = 600;
 const CONCURRENT_THUMBS = 8;
 
 function App() {
-  const [currentPath, setCurrentPath] = useState(INITIAL_PATH);
+  const [currentPath, setCurrentPath] = useState<string | null>(
+    localStorage.getItem("lastPath")
+  );
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const cols = useTileSize();
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
@@ -30,11 +32,17 @@ function App() {
   const imageEntries = useMemo(() => toImageEntries(entries), [entries]);
 
   function navigateTo(path: string) {
+    localStorage.setItem("lastPath", path);
     setCurrentPath(path);
     setEntries([]);
     setThumbs({});
     setViewerIndex(null);
     setViewerSrc(null);
+  }
+
+  async function pickFolder() {
+    const selected = await open({ directory: true, multiple: false });
+    if (typeof selected === "string") navigateTo(selected);
   }
 
   function closeViewer() {
@@ -43,6 +51,7 @@ function App() {
   }
 
   useEffect(() => {
+    if (!currentPath) return;
     invoke<DirEntry[]>("list_directory", { path: currentPath }).then(setEntries);
   }, [currentPath]);
 
@@ -124,7 +133,7 @@ function App() {
         }
         return;
       }
-      if (e.key === "Backspace") {
+      if (e.key === "Backspace" && currentPath) {
         const parent = getParentPath(currentPath);
         if (parent) navigateTo(parent);
       }
@@ -133,7 +142,20 @@ function App() {
     return () => window.removeEventListener("keydown", handleKey);
   }, [viewerIndex, currentPath, imageEntries]);
 
-  const breadcrumb = buildBreadcrumb(currentPath);
+  const breadcrumb = currentPath ? buildBreadcrumb(currentPath) : [];
+
+  if (!currentPath) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "sans-serif" }}>
+        <button
+          onClick={pickFolder}
+          style={{ padding: "0.75rem 1.5rem", fontSize: "1rem", cursor: "pointer" }}
+        >
+          Open Folder
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: "1rem", fontFamily: "sans-serif" }}>
@@ -167,15 +189,31 @@ function App() {
             );
           })}
         </div>
-        {timerSeconds !== null && (
-          <span style={{
-            fontFamily: "monospace",
-            fontSize: "0.85rem",
-            color: thumbsLoading ? "#c0692a" : "#888",
-          }}>
-            {timerSeconds}s
-          </span>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          {timerSeconds !== null && (
+            <span style={{
+              fontFamily: "monospace",
+              fontSize: "0.85rem",
+              color: thumbsLoading ? "#c0692a" : "#888",
+            }}>
+              {timerSeconds}s
+            </span>
+          )}
+          <button
+            onClick={pickFolder}
+            style={{
+              background: "none",
+              border: "1px solid #ccc",
+              borderRadius: "4px",
+              padding: "2px 8px",
+              fontSize: "0.85rem",
+              cursor: "pointer",
+              color: "#4a6d8e",
+            }}
+          >
+            Open…
+          </button>
+        </div>
       </div>
 
       <Masonry

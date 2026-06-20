@@ -136,6 +136,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(AtomicU64::new(0))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![list_directory, read_image_base64, get_thumbnail, next_generation])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

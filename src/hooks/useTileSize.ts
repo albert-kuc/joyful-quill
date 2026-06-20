@@ -4,8 +4,8 @@ export const MIN_COLS = 1;
 export const MAX_COLS = 12;
 
 export function clampCols(current: number, deltaY: number): number {
-  if (deltaY > 0) return Math.max(MIN_COLS, current - 1);
-  return Math.min(MAX_COLS, current + 1);
+  if (deltaY > 0) return Math.min(MAX_COLS, current + 1);
+  return Math.max(MIN_COLS, current - 1);
 }
 
 export function useTileSize(initial = 4): number {

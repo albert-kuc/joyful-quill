@@ -91,8 +91,8 @@ joyful-quill/
 | 3 | ✅ done | **Navigation** | Folder tiles with preview + icon; click in; Backspace out; breadcrumb |
 | 4 | ✅ done | **Full-screen viewer** | `←` / `→` navigation; `Escape` / `Backspace` to close |
 | 5 | ✅ done | **Fix the freeze** | Async `get_thumbnail` via `spawn_blocking`; progressive per-result state updates; generation counter to cancel stale Rust tasks on navigation; frontend concurrency limiter (K=8) to cap in-flight IPC calls |
-| 6 | 🔲 next | **Open folder dialog** | Replace hardcoded `INITIAL_PATH` with `tauri-plugin-dialog`; persist last path in `localStorage`; "Open…" button in toolbar |
-| 7 | 🔲 | **Disk cache** | Cache decoded thumbnails to `%LOCALAPPDATA%\JoyfulQuill\thumbs\` (SHA256+mtime key); re-entering a directory reads cached JPEGs from disk, no decode; rayon not needed — concurrent `spawn_blocking` already parallelises across cores |
+| 6 | ✅ done | **Open folder dialog** | Replace hardcoded `INITIAL_PATH` with `tauri-plugin-dialog`; persist last path in `localStorage`; "Open…" button in toolbar |
+| 7 | 🔲 next | **Disk cache** | Cache decoded thumbnails to `%LOCALAPPDATA%\JoyfulQuill\thumbs\` (SHA256+mtime key); re-entering a directory reads cached JPEGs from disk, no decode; rayon not needed — concurrent `spawn_blocking` already parallelises across cores |
 | 8 | 🔲 | **Scale & integration** | Virtualisation for large folders; Windows "Open with" shell registration |
 
 ---
