@@ -1,6 +1,7 @@
 use base64::{engine::general_purpose, Engine};
 use serde::Serialize;
 use std::fs;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const SUPPORTED_EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif", "heic",
@@ -85,21 +86,38 @@ fn list_directory(path: String) -> Vec<DirEntry> {
 }
 
 #[tauri::command]
-fn get_thumbnail(path: String, size: u32) -> Result<String, String> {
-    let file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
-    let reader = std::io::BufReader::new(file);
-    let img = image::ImageReader::new(reader)
-        .with_guessed_format()
-        .map_err(|e| e.to_string())?
-        .decode()
-        .map_err(|e| e.to_string())?;
-    let thumb = img.thumbnail(size, size);
-    let mut buf = Vec::new();
-    thumb
-        .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Jpeg)
-        .map_err(|e| e.to_string())?;
-    let encoded = general_purpose::STANDARD.encode(&buf);
-    Ok(format!("data:image/jpeg;base64,{}", encoded))
+fn next_generation(gen: tauri::State<AtomicU64>) -> u64 {
+    gen.fetch_add(1, Ordering::Relaxed) + 1
+}
+
+#[tauri::command]
+async fn get_thumbnail(
+    path: String,
+    size: u32,
+    generation: u64,
+    gen: tauri::State<'_, AtomicU64>,
+) -> Result<String, String> {
+    if gen.load(Ordering::Relaxed) != generation {
+        return Err("cancelled".to_string());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+        let reader = std::io::BufReader::new(file);
+        let img = image::ImageReader::new(reader)
+            .with_guessed_format()
+            .map_err(|e| e.to_string())?
+            .decode()
+            .map_err(|e| e.to_string())?;
+        let thumb = img.thumbnail(size, size);
+        let mut buf = Vec::new();
+        thumb
+            .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Jpeg)
+            .map_err(|e| e.to_string())?;
+        let encoded = general_purpose::STANDARD.encode(&buf);
+        Ok(format!("data:image/jpeg;base64,{}", encoded))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -116,8 +134,9 @@ fn read_image_base64(path: String) -> Result<String, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(AtomicU64::new(0))
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![list_directory, read_image_base64, get_thumbnail])
+        .invoke_handler(tauri::generate_handler![list_directory, read_image_base64, get_thumbnail, next_generation])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

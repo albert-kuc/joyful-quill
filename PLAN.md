@@ -49,7 +49,6 @@ cannot touch files directly; it asks Rust via Tauri commands.
 | Layer | Library | Purpose |
 |-------|---------|---------|
 | Backend | `image` crate (Rust) | Decode images, generate thumbnails |
-| Backend | `rayon` (Rust) | Parallel thumbnail generation across all CPU cores |
 | Backend | `walkdir` / `std::fs` | Directory enumeration |
 | Frontend | React 18 + TypeScript | UI |
 | Frontend | Zustand | App state (current path, tile size, open image) |
@@ -83,7 +82,7 @@ joyful-quill/
 
 ---
 
-## Build Strategy — Five Milestones
+## Build Strategy — Milestones
 
 | # | Status | Milestone | Deliverable |
 |---|--------|-----------|-------------|
@@ -91,7 +90,10 @@ joyful-quill/
 | 2 | ✅ done | **Tile grid** | Real thumbnails in a CSS grid; scroll wheel resizes tiles |
 | 3 | ✅ done | **Navigation** | Folder tiles with preview + icon; click in; Backspace out; breadcrumb |
 | 4 | ✅ done | **Full-screen viewer** | `←` / `→` navigation; `Escape` / `Backspace` to close |
-| 5 | 🔲 next | **Polish & integration** | Progressive loading; parallel generation (rayon); disk cache (`%LOCALAPPDATA%\JoyfulQuill\thumbs\`); open folder dialog; Windows "Open with"; virtualisation for large folders |
+| 5 | ✅ done | **Fix the freeze** | Async `get_thumbnail` via `spawn_blocking`; progressive per-result state updates; generation counter to cancel stale Rust tasks on navigation; frontend concurrency limiter (K=8) to cap in-flight IPC calls |
+| 6 | 🔲 next | **Open folder dialog** | Replace hardcoded `INITIAL_PATH` with `tauri-plugin-dialog`; persist last path in `localStorage`; "Open…" button in toolbar |
+| 7 | 🔲 | **Disk cache** | Cache decoded thumbnails to `%LOCALAPPDATA%\JoyfulQuill\thumbs\` (SHA256+mtime key); re-entering a directory reads cached JPEGs from disk, no decode; rayon not needed — concurrent `spawn_blocking` already parallelises across cores |
+| 8 | 🔲 | **Scale & integration** | Virtualisation for large folders; Windows "Open with" shell registration |
 
 ---
 
@@ -121,12 +123,6 @@ Sort: natural sort by name (same algorithm as Windows Explorer so `img2 < img10`
 - On hit: read the cached JPEG bytes directly — no image decode
 - On miss: decode → resize → write to cache → return
 - Invalidation: mtime change produces a new cache key; orphaned files cleaned on startup
-
-**Parallel generation** with `rayon`:
-- Replace the single-threaded per-call approach with a batch command:
-  `get_thumbnails_batch(paths: Vec<String>, size: u32) -> Vec<(String, Option<String>)>`
-- Internally uses `rayon::par_iter()` — all CPU cores work simultaneously
-- Single IPC round-trip instead of one per image
 
 **Progressive loading** on the React side:
 - Fire thumbnail requests individually so each tile appears as soon as its thumbnail is ready
