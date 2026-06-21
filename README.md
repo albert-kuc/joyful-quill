@@ -4,12 +4,16 @@ A Windows desktop image viewer built with Tauri 2.0, React, and TypeScript.
 
 ## What it does
 
-- Opens a directory and displays all images as a tile grid
-- Scroll wheel resizes tiles (more or fewer columns)
-- Subdirectories appear as tiles showing their first image, with a folder icon
-- Click an image to open it full-screen; navigate with `←` / `→`; close with `Escape`
-- Click a folder tile to navigate into it; `Backspace` goes back up
-- Sorted by name (Windows Explorer order)
+- Opens a directory and displays images and video files as a tile grid
+- `Ctrl`+scroll (or scroll wheel on the grid) resizes tiles (1–12 columns)
+- Folder tiles show a preview of their first image with a blue border; click to navigate in
+- Image tiles: click to open full-screen; navigate with `←` / `→`; close with `Escape` or `Backspace`
+- Video tiles show a system thumbnail (same as Windows Explorer) with a pink border; click to open in the default media player
+- `Backspace` in the grid goes up one directory level
+- Breadcrumb bar shows the current path; click any segment to jump to that level
+- Last opened folder is remembered across launches
+- Thumbnail cache stored in `%LOCALAPPDATA%\JoyfulQuill\thumbs\` for instant re-opens; "Clear cache" button in the toolbar
+- Sorted by name (directories first, then files, Windows Explorer order)
 
 ## Tech stack
 
@@ -18,7 +22,7 @@ A Windows desktop image viewer built with Tauri 2.0, React, and TypeScript.
 | Desktop shell | Tauri 2.0 |
 | Backend (file I/O, thumbnails) | Rust |
 | UI | React 18 + TypeScript |
-| State | Zustand |
+| Tile layout | `react-masonry-css` |
 | Build tool | Vite |
 
 ## Development setup
@@ -51,11 +55,14 @@ npm run test                                        # React component tests
 
 ```
 ├── src/                  React frontend
-│   ├── components/       TileGrid, Tile, Viewer, Breadcrumb
-│   ├── hooks/            useDirectory, useTileSize
-│   └── store/            Zustand state slices
+│   ├── App.tsx           Main component: tile grid, viewer, toolbar
+│   ├── App.css           Tile and layout styles
+│   ├── hooks/
+│   │   └── useTileSize.ts  Ctrl+scroll → column count
+│   └── utils/
+│       └── navigation.ts   Path helpers, DirEntry type, breadcrumb builder
 └── src-tauri/            Rust backend
-    └── src/commands/     list_directory, get_thumbnail
+    └── src/lib.rs        list_directory, get_thumbnail, get_video_thumbnail, clear_cache
 ```
 
 ## Building a distributable installer

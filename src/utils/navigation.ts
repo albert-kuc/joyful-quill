@@ -2,6 +2,7 @@ export interface DirEntry {
   name: string;
   path: string;
   is_dir: boolean;
+  is_video: boolean;
   preview_path: string | null;
 }
 
@@ -22,7 +23,7 @@ export function buildBreadcrumb(p: string): { label: string; path: string }[] {
 }
 
 export function toImageEntries(entries: DirEntry[]): DirEntry[] {
-  return entries.filter(e => !e.is_dir);
+  return entries.filter(e => !e.is_dir && !e.is_video);
 }
 
 export function nextIndex(current: number, total: number): number {

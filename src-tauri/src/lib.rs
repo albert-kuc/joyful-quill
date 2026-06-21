@@ -8,11 +8,16 @@ const SUPPORTED_EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif", "heic",
 ];
 
+const SUPPORTED_VIDEO_EXTENSIONS: &[&str] = &[
+    "mp4", "mkv", "avi", "mov", "wmv", "webm", "m4v", "flv", "ts", "mts",
+];
+
 #[derive(Serialize)]
 struct DirEntry {
     name: String,
     path: String,
     is_dir: bool,
+    is_video: bool,
     preview_path: Option<String>,
 }
 
@@ -55,6 +60,7 @@ fn list_directory(path: String) -> Vec<DirEntry> {
                     name,
                     path: p.to_string_lossy().into_owned(),
                     is_dir: true,
+                    is_video: false,
                     preview_path,
                 });
             }
@@ -70,6 +76,15 @@ fn list_directory(path: String) -> Vec<DirEntry> {
                     name,
                     path: p.to_string_lossy().into_owned(),
                     is_dir: false,
+                    is_video: false,
+                    preview_path: None,
+                })
+            } else if SUPPORTED_VIDEO_EXTENSIONS.contains(&ext.as_str()) {
+                Some(DirEntry {
+                    name,
+                    path: p.to_string_lossy().into_owned(),
+                    is_dir: false,
+                    is_video: true,
                     preview_path: None,
                 })
             } else {
@@ -232,6 +247,130 @@ mod tests {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn get_shell_thumbnail_bytes(path: &str, size: u32) -> Result<Vec<u8>, String> {
+    use windows::{
+        core::PCWSTR,
+        Win32::{
+            Foundation::HWND,
+            Graphics::Gdi::{
+                DeleteObject, GetDC, GetDIBits, GetObjectA, ReleaseDC,
+                BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+            },
+            System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED},
+            UI::Shell::{
+                IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_BIGGERSIZEOK,
+            },
+        },
+    };
+
+    let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+
+    unsafe {
+        // S_FALSE means already initialized on this thread — still ok
+        CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok().map_err(|e| e.to_string())?;
+
+        let result = (|| -> Result<Vec<u8>, String> {
+            let factory: IShellItemImageFactory =
+                SHCreateItemFromParsingName(PCWSTR(wide.as_ptr()), None)
+                    .map_err(|e| e.to_string())?;
+
+            let sz = windows::Win32::Foundation::SIZE {
+                cx: size as i32,
+                cy: size as i32,
+            };
+            let hbitmap = factory
+                .GetImage(sz, SIIGBF_BIGGERSIZEOK)
+                .map_err(|e| e.to_string())?;
+
+            // Use GetObject to reliably get bitmap dimensions
+            let mut bmp: BITMAP = std::mem::zeroed();
+            GetObjectA(
+                hbitmap,
+                std::mem::size_of::<BITMAP>() as i32,
+                Some(&mut bmp as *mut _ as *mut std::ffi::c_void),
+            );
+            let w = bmp.bmWidth as u32;
+            let h = bmp.bmHeight.unsigned_abs();
+
+            if w == 0 || h == 0 {
+                let _ = DeleteObject(hbitmap);
+                return Err("shell thumbnail has zero dimensions".to_string());
+            }
+
+            let mut bmi = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: w as i32,
+                    biHeight: -(h as i32), // negative = top-down scan order
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+
+            let mut pixels = vec![0u8; (w as usize) * (h as usize) * 4];
+            let screen_dc = GetDC(HWND(std::ptr::null_mut()));
+            GetDIBits(
+                screen_dc,
+                hbitmap,
+                0,
+                h,
+                Some(pixels.as_mut_ptr() as *mut _),
+                &mut bmi,
+                DIB_RGB_COLORS,
+            );
+            ReleaseDC(HWND(std::ptr::null_mut()), screen_dc);
+            let _ = DeleteObject(hbitmap);
+
+            // Windows stores BGRA; convert to RGBA for the image crate
+            for chunk in pixels.chunks_exact_mut(4) {
+                chunk.swap(0, 2);
+            }
+
+            let img = image::RgbaImage::from_raw(w, h, pixels)
+                .ok_or_else(|| "failed to create RgbaImage from shell bitmap".to_string())?;
+            let mut buf = Vec::new();
+            image::DynamicImage::ImageRgba8(img)
+                .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Jpeg)
+                .map_err(|e| e.to_string())?;
+            Ok(buf)
+        })();
+
+        CoUninitialize();
+        result
+    }
+}
+
+#[tauri::command]
+async fn get_video_thumbnail(
+    path: String,
+    size: u32,
+    generation: u64,
+    gen: tauri::State<'_, AtomicU64>,
+) -> Result<String, String> {
+    if gen.load(Ordering::Relaxed) != generation {
+        return Err("cancelled".to_string());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        {
+            let bytes = get_shell_thumbnail_bytes(&path, size)?;
+            let encoded = general_purpose::STANDARD.encode(&bytes);
+            return Ok(format!("data:image/jpeg;base64,{}", encoded));
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = (path, size);
+            Err("video thumbnails are only supported on Windows".to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn clear_cache() -> Result<(), String> {
     let dir = std::env::var("LOCALAPPDATA")
@@ -261,7 +400,7 @@ pub fn run() {
         .manage(AtomicU64::new(0))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![list_directory, read_image_base64, get_thumbnail, next_generation, clear_cache])
+        .invoke_handler(tauri::generate_handler![list_directory, read_image_base64, get_thumbnail, get_video_thumbnail, next_generation, clear_cache])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

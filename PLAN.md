@@ -95,6 +95,7 @@ joyful-quill/
 | 7 | ✅ done | **Disk cache** | Cache decoded thumbnails to `%LOCALAPPDATA%\JoyfulQuill\thumbs\` (SHA256+mtime key); re-entering a directory reads cached JPEGs from disk, no decode; "Clear cache" button in toolbar with inline confirmation purges the cache dir |
 | 8 | ⏸ deferred | **Virtualisation** | Virtualise the tile grid for large folders; replace `react-masonry-css` with a virtualisation-aware layout so only visible tiles are in the DOM; trade-off: loses variable-height masonry, forces uniform tile size |
 | 9 | ⏸ deferred | **Shell integration** | Windows "Open with" shell registration; handle CLI path argument so the app opens directly into a folder or image passed by Explorer |
+| 10 | ✅ done | **Video support** | List video files in the tile grid with thumbnails (via Windows Shell `IShellItemImageFactory`) and a pink border; click opens in default Windows media player via `tauri-plugin-opener`; videos excluded from the in-app full-screen viewer |
 
 ---
 

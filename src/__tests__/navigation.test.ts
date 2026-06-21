@@ -10,8 +10,8 @@ import type { DirEntry } from "../utils/navigation";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-function makeEntry(name: string, is_dir: boolean): DirEntry {
-  return { name, path: `C:\\photos\\${name}`, is_dir, preview_path: null };
+function makeEntry(name: string, is_dir: boolean, is_video = false): DirEntry {
+  return { name, path: `C:\\photos\\${name}`, is_dir, is_video, preview_path: null };
 }
 
 // ── getParentPath ─────────────────────────────────────────────────────────────

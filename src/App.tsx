@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openPath } from "@tauri-apps/plugin-opener";
 import Masonry from "react-masonry-css";
 import { useTileSize } from "./hooks/useTileSize";
 import {
@@ -63,7 +64,9 @@ function App() {
 
   useEffect(() => {
     const pathsToLoad = entries.flatMap(e =>
-      !e.is_dir ? [e.path] : e.preview_path ? [e.preview_path] : []
+      e.is_dir ? (e.preview_path ? [{ path: e.preview_path, video: false }] : [])
+      : e.is_video ? [{ path: e.path, video: true }]
+      : [{ path: e.path, video: false }]
     );
     if (pathsToLoad.length === 0) {
       setTimerSeconds(null);
@@ -82,10 +85,11 @@ function App() {
 
     function loadNext(generation: number) {
       while (!cancelled && active < CONCURRENT_THUMBS && queue.length > 0) {
-        const p = queue.shift()!;
+        const item = queue.shift()!;
         active++;
-        invoke<string>("get_thumbnail", { path: p, size: THUMB_SIZE, generation })
-          .then(src => { if (!cancelled) setThumbs(prev => ({ ...prev, [p]: src })); })
+        const cmd = item.video ? "get_video_thumbnail" : "get_thumbnail";
+        invoke<string>(cmd, { path: item.path, size: THUMB_SIZE, generation })
+          .then(src => { if (!cancelled) setThumbs(prev => ({ ...prev, [item.path]: src })); })
           .catch(() => {})
           .finally(() => {
             active--;
@@ -221,6 +225,21 @@ function App() {
             Open…
           </button>
           <span style={{ color: "#aaa" }}>|</span>
+          <button
+            onClick={() => openPath(currentPath)}
+            style={{
+              background: "none",
+              border: "1px solid #ccc",
+              borderRadius: "4px",
+              padding: "2px 8px",
+              fontSize: "0.85rem",
+              cursor: "pointer",
+              color: "#4a6d8e",
+            }}
+          >
+            Open in explorer
+          </button>
+          <span style={{ color: "#aaa" }}>|</span>
           {showClearConfirm ? (
             <>
               <span style={{ fontSize: "0.85rem", color: "#666" }}>Purge cache?</span>
@@ -280,12 +299,12 @@ function App() {
         {entries.map(entry => (
           <div
             key={entry.path}
-            onClick={() =>
-              entry.is_dir
-                ? navigateTo(entry.path)
-                : setViewerIndex(imageEntries.indexOf(entry))
-            }
-            className={entry.is_dir ? "tile tile--folder" : "tile"}
+            onClick={() => {
+              if (entry.is_dir) navigateTo(entry.path);
+              else if (entry.is_video) openPath(entry.path).catch(err => console.error("openPath failed:", err));
+              else setViewerIndex(imageEntries.indexOf(entry));
+            }}
+            className={entry.is_dir ? "tile tile--folder" : entry.is_video ? "tile tile--video" : "tile"}
           >
             {entry.is_dir ? (
               <div className="folder-tile">
@@ -301,6 +320,19 @@ function App() {
                   <span className="folder-tile__name">{entry.name}</span>
                 </div>
               </div>
+            ) : entry.is_video ? (
+              thumbs[entry.path] ? (
+                <img
+                  src={thumbs[entry.path]}
+                  alt={entry.name}
+                  style={{ width: "100%", height: "auto", display: "block" }}
+                />
+              ) : (
+                <div style={{ aspectRatio: "1", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "0.25rem" }}>
+                  <span style={{ fontSize: "2rem" }}>🎬</span>
+                  <span style={{ color: "#888", fontSize: "0.7rem", textAlign: "center", padding: "0 0.25rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{entry.name}</span>
+                </div>
+              )
             ) : thumbs[entry.path] ? (
               <img
                 src={thumbs[entry.path]}
