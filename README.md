@@ -97,7 +97,8 @@ The app is installed to `%LOCALAPPDATA%\joyful-quill\` (NSIS) or
 `C:\Program Files\joyful-quill\` (MSI) depending on the installer type.
 
 The thumbnail cache (`%LOCALAPPDATA%\JoyfulQuill\thumbs\`) is created separately on
-first use and is not touched by the uninstaller — delete it manually if needed.
+first use. The uninstaller removes both `%LOCALAPPDATA%\JoyfulQuill` and
+`%LOCALAPPDATA%\com.qc.joyfull-quill` automatically.
 
 WebView2 (the rendering engine) is not bundled; it is already part of Windows 10
 (updated builds) and Windows 11. If the target is an older Windows 10 that lacks it,
