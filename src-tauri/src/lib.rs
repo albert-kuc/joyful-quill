@@ -120,7 +120,32 @@ fn thumb_cache_key(path: &str, mtime_secs: u64) -> String {
     format!("{:x}", h.finalize())
 }
 
+fn read_exif_orientation(path: &str) -> u32 {
+    (|| -> Option<u32> {
+        let file = std::fs::File::open(path).ok()?;
+        let mut buf = std::io::BufReader::new(file);
+        let exif = exif::Reader::new().read_from_container(&mut buf).ok()?;
+        exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY)
+            .and_then(|f| f.value.get_uint(0))
+    })()
+    .unwrap_or(1)
+}
+
+fn apply_exif_orientation(img: image::DynamicImage, orientation: u32) -> image::DynamicImage {
+    match orientation {
+        2 => img.fliph(),
+        3 => img.rotate180(),
+        4 => img.flipv(),
+        5 => img.rotate90().fliph(),
+        6 => img.rotate90(),
+        7 => img.rotate270().fliph(),
+        8 => img.rotate270(),
+        _ => img,
+    }
+}
+
 fn generate_thumbnail_bytes(path: &str, size: u32) -> Result<Vec<u8>, String> {
+    let orientation = read_exif_orientation(path);
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let reader = std::io::BufReader::new(file);
     let img = image::ImageReader::new(reader)
@@ -128,6 +153,7 @@ fn generate_thumbnail_bytes(path: &str, size: u32) -> Result<Vec<u8>, String> {
         .map_err(|e| e.to_string())?
         .decode()
         .map_err(|e| e.to_string())?;
+    let img = apply_exif_orientation(img, orientation);
     let thumb = img.thumbnail(size, size);
     let mut buf = Vec::new();
     thumb
@@ -181,6 +207,7 @@ async fn get_thumbnail(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::GenericImageView;
 
     fn write_test_png(path: &std::path::Path) {
         use image::{ImageBuffer, Rgb};
@@ -195,6 +222,62 @@ mod tests {
             std::process::id(),
             suffix
         ))
+    }
+
+    // 4×2 image (landscape) with a single red pixel at top-left; all others black.
+    // Non-square so that swapped dimensions catch wrong rotation directions.
+    fn make_4x2_red_origin() -> image::DynamicImage {
+        image::DynamicImage::ImageRgb8(image::ImageBuffer::from_fn(4, 2, |x, y| {
+            if x == 0 && y == 0 {
+                image::Rgb([255u8, 0, 0])
+            } else {
+                image::Rgb([0u8, 0, 0])
+            }
+        }))
+    }
+
+    #[test]
+    fn should_leave_image_unchanged_for_orientation_1() {
+        // Given
+        let img = make_4x2_red_origin();
+        // When
+        let result = apply_exif_orientation(img, 1);
+        // Then
+        assert_eq!((result.width(), result.height()), (4, 2));
+        assert_eq!(result.get_pixel(0, 0), image::Rgba([255, 0, 0, 255]));
+    }
+
+    #[test]
+    fn should_rotate_90_cw_for_orientation_6() {
+        // Given: 4×2 landscape, red at top-left
+        let img = make_4x2_red_origin();
+        // When: Samsung portrait orientation — needs 90° CW to display correctly
+        let result = apply_exif_orientation(img, 6);
+        // Then: dimensions swap to 2×4; red lands at top-right (1, 0)
+        assert_eq!((result.width(), result.height()), (2, 4));
+        assert_eq!(result.get_pixel(1, 0), image::Rgba([255, 0, 0, 255]));
+    }
+
+    #[test]
+    fn should_rotate_90_ccw_for_orientation_8() {
+        // Given: 4×2 landscape, red at top-left
+        let img = make_4x2_red_origin();
+        // When: upside-down portrait — needs 90° CCW to display correctly
+        let result = apply_exif_orientation(img, 8);
+        // Then: dimensions swap to 2×4; red lands at bottom-left (0, 3)
+        assert_eq!((result.width(), result.height()), (2, 4));
+        assert_eq!(result.get_pixel(0, 3), image::Rgba([255, 0, 0, 255]));
+    }
+
+    #[test]
+    fn should_rotate_180_for_orientation_3() {
+        // Given: 4×2 landscape, red at top-left
+        let img = make_4x2_red_origin();
+        // When
+        let result = apply_exif_orientation(img, 3);
+        // Then: dimensions unchanged; red lands at bottom-right (3, 1)
+        assert_eq!((result.width(), result.height()), (4, 2));
+        assert_eq!(result.get_pixel(3, 1), image::Rgba([255, 0, 0, 255]));
     }
 
     #[test]
